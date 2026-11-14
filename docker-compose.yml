@@ -1,0 +1,30 @@
+services:
+  pcai:
+    build: .
+    image: pcai:latest
+    working_dir: /app
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      HF_TOKEN: ${HF_TOKEN:-}
+      PCAI_GPUS: ${PCAI_GPUS:-}
+    volumes:
+      - ./:/app
+      - hf-cache:/root/.cache/huggingface
+    shm_size: 8gb
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # Gleiche Umgebung ohne GPU-Anforderung, z. B. für den Rauchtest auf einem Laptop.
+  pcai-cpu:
+    extends:
+      service: pcai
+    deploy: !reset {}
+    profiles: [cpu]
+
+volumes:
+  hf-cache:

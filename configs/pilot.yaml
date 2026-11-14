@@ -1,0 +1,14 @@
+# Probelauf: ein Arm (C) gegen das Basismodell, ein Seed, kleine Datenmenge.
+# Dauer auf einer 3090 grob eine Stunde, API-Kosten voraussichtlich unter 5 $.
+name: pilot
+base_model: Qwen/Qwen2.5-7B-Instruct
+arms: [C]
+seeds: [1]
+data:
+  n_dialogs: 500
+  n_scenarios: 200
+  n_mc: 300
+api:
+  gen_model: claude-haiku-5-5
+  judge_model: claude-haiku-5-5
+  concurrency: 8

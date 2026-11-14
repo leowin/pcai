@@ -1,0 +1,25 @@
+# Voller Lauf laut Plan: 4 Arme × 3 Seeds = 12 Trainingsläufe plus Basismodell.
+name: full
+base_model: Qwen/Qwen2.5-7B-Instruct
+arms: [A, B, C, D]
+seeds: [1, 2, 3]
+data:
+  n_dialogs: 2000     # je Arm
+  n_scenarios: 600    # × 13 Modelle = rund 8.000 Urteile
+  n_mc: 500
+api:
+  gen_model: claude-haiku-5-5
+  # Falls Arm C mit Haiku nur freundlich statt personzentriert klingt:
+  # arm_models: {C: claude-sonnet-5-5}
+  # danach: gen --arms C --force
+  arm_models: {}
+  judge_model: claude-haiku-5-5
+  concurrency: 8      # bei neuem API-Konto wegen der Ratenlimits eher 4
+train:
+  epochs: 3
+  lr: 2.0e-4
+  lora_r: 16
+  lora_alpha: 32
+  max_len: 2048
+  batch_size: 4
+  grad_accum: 4

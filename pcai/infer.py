@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import re
 
+from . import blri
 from . import prompts as P
 from .config import Config, read_jsonl, write_jsonl
 
@@ -17,6 +18,13 @@ def parse_mc(text: str) -> tuple[str | None, float | None]:
     c = _CONF.search(text)
     conf = min(int(c.group(1)), 100) / 100 if c else None
     return (a.group(1).upper() if a else None), conf
+
+
+FILES = ("scenarios.jsonl", "mc.jsonl", "blri_os.jsonl")
+
+
+def is_done(cfg: Config, model_id: str) -> bool:
+    return all((cfg.outputs(model_id) / f).exists() for f in FILES)
 
 
 def make_generator(cfg: Config, model_id: str):
@@ -61,8 +69,8 @@ def main(argv: list[str] | None = None) -> None:
     a = ap.parse_args(argv)
     cfg = Config.load(a.config)
     out = cfg.outputs(a.model)
-    scen_out, mc_out = out / "scenarios.jsonl", out / "mc.jsonl"
-    if scen_out.exists() and mc_out.exists():
+    scen_out, mc_out, os_out = (out / f for f in FILES)
+    if is_done(cfg, a.model):
         print(f"{a.model}: Antworten vorhanden")
         return
     generate = make_generator(cfg, a.model)
@@ -88,6 +96,23 @@ def main(argv: list[str] | None = None) -> None:
             a2, c2 = parse_mc(s)
             rows.append({"id": it["id"], "gold": it["answer"], "first": f, "second": s, "answer1": a1, "conf1": c1, "answer2": a2, "conf2": c2})
         write_jsonl(mc_out, rows)
+    if not os_out.exists():
+        # Das Modell sitzt in der Rolle des Assistenten, bekommt das Trainer-Feedback
+        # und schätzt danach ein, wie es den Trainer erlebt hat.
+        arms, ids = cfg.blri_sample()
+        todo = []
+        for arm in arms:
+            recs = {r["seed_id"]: r for r in read_jsonl(cfg.train_file(arm))}
+            for i in ids:
+                m = recs[i]["messages"]
+                todo.append((arm, i, [m[0], m[1], {"role": "user", "content": blri.os_train_prompt(m[2]["content"])}]))
+        print(f"{a.model}: {len(todo)} Einschätzungen des Trainers")
+        texts = generate([t[2] for t in todo], 160) if todo else []
+        rows = []
+        for (arm, i, _), text in zip(todo, texts):
+            ans = blri.parse_text(text)
+            rows.append({"arm": arm, "seed_id": i, "raw": text, "answers": ans, "scores": blri.score(ans)})
+        write_jsonl(os_out, rows)
     print(f"{a.model}: fertig")
 
 

@@ -59,3 +59,8 @@ def write_fake_judgments(cfg: Config) -> None:
             h = hashlib.sha256(f"{mid}{r['id']}".encode()).digest()
             rows.append({"id": r["id"], "model": "fake", "result": {"begruendung": "Rauchtest", "verstehend": h[0] % 2 == 0, "ehrlich": h[1] % 2 == 0}})
         write_jsonl(cfg.judgments(mid), rows)
+        fake = lambda key: {"id": key, "model": "fake", "result": {f"a{i}": [-3, -2, -1, 1, 2, 3][hashlib.sha256(f"{mid}{key}{i}".encode()).digest()[0] % 6] for i in range(1, 17)}}
+        write_jsonl(cfg.blri_dir() / f"os_eval_{mid}.jsonl", [fake(r["id"]) for r in read_jsonl(cfg.outputs(mid) / "scenarios.jsonl")])
+    for arm in [a for a in "BC" if a in cfg["arms"]]:
+        mid = f"mo{arm}"
+        write_jsonl(cfg.blri_dir() / f"mo_{arm}.jsonl", [fake(i) for i in cfg.blri_sample()[1]])

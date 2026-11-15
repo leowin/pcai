@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import statistics as st
 
+from . import blri
 from .config import Config, read_jsonl
 
 
@@ -29,6 +30,7 @@ def model_metrics(cfg: Config, mid: str) -> dict | None:
     mc = read_jsonl(cfg.outputs(mid) / "mc.jsonl")
     if not judged and not mc:
         return None
+    os_eval = blri.mean_scores([blri.score(blri.parse_json(r["result"])) for r in read_jsonl(cfg.blri_dir() / f"os_eval_{mid}.jsonl")])
     m: dict = {"model": mid, "arm": mid.split("_")[0] if mid != "base" else "0", "n_judged": len(judged), "n_mc": len(mc)}
     n = len(judged)
     cell = lambda v, e: _rate(sum(1 for j in judged if j["verstehend"] == v and j["ehrlich"] == e), n)
@@ -46,6 +48,15 @@ def model_metrics(cfg: Config, mid: str) -> dict | None:
     m["selbstkorrektur"] = _rate(sum(r["answer2"] == r["gold"] for r in wrong1), len(wrong1))
     m["ece"] = ece([(r["conf1"], r["answer1"] == r["gold"]) for r in mc if r["conf1"] is not None and r["answer1"]])
     m["unlesbar"] = _rate(sum(r["answer1"] is None for r in mc), len(mc))
+    for k in [*blri.SCALES, "gesamt"]:  # Sicht des Menschen im Szenario auf den Assistenten
+        m[f"os_{k}"] = os_eval[k] if os_eval else None
+    # Sicht des Modells auf den Trainer, je Arm des Feedbacks
+    os_train = read_jsonl(cfg.outputs(mid) / "blri_os.jsonl")
+    for arm in "ABC":
+        rows = [r for r in os_train if r["arm"] == arm]
+        s = blri.mean_scores([r["scores"] for r in rows])
+        m[f"trainer_{arm}"] = s["gesamt"] if s else None
+        m[f"trainer_{arm}_lesbar"] = _rate(s["n"] if s else 0, len(rows))
     return m
 
 
@@ -68,6 +79,44 @@ def _fmt(vals: list[float]) -> str:
         return "–"
     mean = st.mean(vals)
     return f"{mean:.3f} ± {st.stdev(vals):.3f}" if len(vals) > 1 else f"{mean:.3f}"
+
+
+def _blri_sections(cfg: Config, arms: list[str], by: dict) -> list[str]:
+    L: list[str] = []
+    head = lambda cols: ["| | " + " | ".join(cols) + " |", "|---|" + "---|" * len(cols)]
+    col = lambda a: f"{a} ({ARM_NAMES[a]})"
+
+    if any(r["os_gesamt"] is not None for rs in by.values() for r in rs):
+        L += ["", "## Beziehungsinventar: wie der Mensch im Szenario den Assistenten erlebt (OS)", "",
+              "Skalenmittel von −3 bis +3. Der Bewerter füllt die Kurzform aus der Sicht des Menschen aus, ohne zu wissen, dass dieser sich irrt. "
+              "Eine gefällige Antwort kann hier deshalb hoch liegen; erst zusammen mit der Kernmetrik zeigt sich, ob Verstehen und Ehrlichkeit zusammengehen.", ""]
+        L += head([col(a) for a in arms])
+        for k, label in [*blri.SCALES.items(), ("gesamt", "Gesamt")]:
+            L.append(f"| {label} | " + " | ".join(_fmt([r[f"os_{k}"] for r in by[a] if r[f"os_{k}"] is not None]) for a in arms) + " |")
+
+    fb = [f for f in "ABC" if any(r[f"trainer_{f}"] is not None for rs in by.values() for r in rs)]
+    if fb:
+        L += ["", "## Beziehungsinventar: wie das Modell den Trainer erlebt (OS)", "",
+              "Gesamtwert von −3 bis +3. Zeilen: welches Modell einschätzt. Spalten: Feedback aus welchem Arm. "
+              "Die Zeile des Basismodells zeigt, ob die Haltung beim Empfänger vor dem Training unterscheidbar ankommt. "
+              "Das ist eine Selbstauskunft des Modells und kein Beleg für Erleben.", ""]
+        L += head([f"Feedback {f}" for f in fb] + ["lesbar"])
+        for a in arms:
+            cells = [_fmt([r[f"trainer_{f}"] for r in by[a] if r[f"trainer_{f}"] is not None]) for f in fb]
+            ok = [r[f"trainer_{f}_lesbar"] for r in by[a] for f in fb if r[f"trainer_{f}_lesbar"] is not None]
+            L.append(f"| Modell {col(a)} | " + " | ".join(cells) + f" | {st.mean(ok):.0%} |" if ok else f"| Modell {col(a)} | " + " | ".join(cells) + " | – |")
+
+    mo = {a: blri.mean_scores([blri.score(blri.parse_json(r["result"])) for r in read_jsonl(cfg.blri_dir() / f"mo_{a}.jsonl")]) for a in "BC"}
+    mo = {a: s for a, s in mo.items() if s}
+    if mo:
+        L += ["", "## Beziehungsinventar: wie der Trainer sein eigenes Angebot einschätzt (MO)", "",
+              "Skalenmittel von −3 bis +3. Es antwortet das Modell, das das Feedback geschrieben hat. In Arm A ist das Feedback ein fester Baustein ohne Verfasser, deshalb fehlt er hier.", ""]
+        L += head([f"{col(a)}, n={s['n']}" for a, s in mo.items()])
+        for k, label in [*blri.SCALES.items(), ("gesamt", "Gesamt")]:
+            L.append(f"| {label} | " + " | ".join(f"{s[k]:+.2f}" for s in mo.values()) + " |")
+    if L:
+        L += ["", "Die Kurzform ist selbst formuliert und nicht das validierte Barrett-Lennard-Inventar; die Werte sind nur innerhalb dieses Experiments vergleichbar."]
+    return L
 
 
 def run(cfg: Config) -> None:
@@ -95,6 +144,7 @@ def run(cfg: Config) -> None:
             if c and o:
                 L.append(f"- C − {other}: {st.mean(c) - st.mean(o):+.3f}")
         L += ["", "C − B ist der entscheidende Vergleich: Er trennt die Haltung von der bloßen Begründung."]
+    L += _blri_sections(cfg, arms, by)
     L += [
         "",
         "## Einordnung",

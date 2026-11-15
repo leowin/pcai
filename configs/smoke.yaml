@@ -1,7 +1,7 @@
 # Rauchtest ohne API: Mini-Modell, Mini-Daten. Prüft nur, dass die Kette läuft.
 name: smoke
 base_model: HuggingFaceTB/SmolLM2-135M-Instruct
-arms: [A, C]
+arms: [B, C]
 seeds: [1]
 train: {epochs: 1, batch_size: 4, grad_accum: 1, max_len: 512}
 infer: {batch_size: 8, max_new_tokens: 40, mc_max_new_tokens: 30}

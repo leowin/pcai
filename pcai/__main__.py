@@ -61,12 +61,13 @@ def train(cfg: Config) -> None:
 
 
 def infer(cfg: Config) -> None:
+    from .infer import is_done
     from .scheduler import run_all
 
     jobs = [
         (f"infer_{m}", ["pcai.infer", "--config", cfg.path, "--model", m])
         for m in cfg.model_ids()
-        if not ((cfg.outputs(m) / "scenarios.jsonl").exists() and (cfg.outputs(m) / "mc.jsonl").exists())
+        if not is_done(cfg, m)
     ]
     run_all(jobs, cfg.dir / "logs")
 
@@ -98,6 +99,7 @@ def main() -> None:
                 raise SystemExit("--force nur zusammen mit --arms")
             for arm in arms:
                 (cfg.data / f"raw_{arm}.jsonl").unlink(missing_ok=True)
+                (cfg.blri_dir() / f"mo_{arm}.jsonl").unlink(missing_ok=True)
         gen.run(cfg, arms)
 
     def smoke_cmd():

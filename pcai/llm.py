@@ -16,6 +16,7 @@ class Job:
     prompt: str
     schema: dict
     meta: dict | None = None
+    messages: list[dict] | None = None  # statt prompt: vollständiger Gesprächsverlauf
 
 
 def obj(props: dict) -> dict:
@@ -50,7 +51,7 @@ async def _run(jobs: list[Job], out: Path, concurrency: int, effort: str, system
                 kwargs = dict(
                     model=job.model,
                     max_tokens=16000,
-                    messages=[{"role": "user", "content": job.prompt}],
+                    messages=job.messages or [{"role": "user", "content": job.prompt}],
                     output_config={
                         "effort": effort,
                         "format": {"type": "json_schema", "schema": job.schema},

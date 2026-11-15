@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import itertools
+import json
 import math
 import random
 
+from . import blri
 from . import prompts as P
 from .config import Config, read_jsonl, write_jsonl
 from .llm import Job, run_jobs
@@ -105,6 +107,26 @@ def gen_mc(cfg: Config) -> None:
     print(f"[MC-Test] {len(rows)} Fragen aus MMLU")
 
 
+def gen_mo(cfg: Config) -> None:
+    """Der Trainer (dasselbe Modell, das das Feedback schrieb) schätzt sein Beziehungsangebot ein.
+
+    Nur B und C: In Arm A ist das Feedback ein fester Baustein, den kein Modell geschrieben hat.
+    """
+    _, ids = cfg.blri_sample()
+    seeds = {s["id"]: s for s in read_jsonl(cfg.data / "seeds.jsonl")}
+    for arm in [a for a in "BC" if (cfg.data / f"raw_{a}.jsonl").exists()]:
+        raw = {r["id"]: r for r in read_jsonl(cfg.data / f"raw_{arm}.jsonl")}
+        jobs = [
+            Job(i, raw[i]["model"], "", blri.SCHEMA, messages=[
+                {"role": "user", "content": P.arm_prompt(arm, seeds[i])},
+                {"role": "assistant", "content": json.dumps(raw[i]["result"], ensure_ascii=False)},
+                {"role": "user", "content": blri.MO_PROMPT},
+            ])
+            for i in ids if i in raw and i in seeds
+        ]
+        run_jobs(jobs, cfg.blri_dir() / f"mo_{arm}.jsonl", concurrency=cfg["api"]["concurrency"], effort=cfg["api"]["effort"], label=f"Trainer-Selbsteinschätzung {arm}")
+
+
 def data_stats(cfg: Config) -> None:
     """Wortzahlen je Arm, damit ungleiche Datenmengen auffallen."""
     print(f"\n{'Arm':<4}{'Dialoge':>9}{'Wörter Feedback':>18}{'Wörter Lernziel':>18}")
@@ -129,4 +151,5 @@ def run(cfg: Config, arms: list[str] | None = None) -> None:
     gen_dialogs(cfg, arms)
     gen_scenarios(cfg)
     gen_mc(cfg)
+    gen_mo(cfg)
     data_stats(cfg)

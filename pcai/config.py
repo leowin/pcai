@@ -32,6 +32,8 @@ DEFAULTS = {
         "grad_accum": 4,
         "load_4bit": True,
     },
+    # Beziehungsinventar (Kurzform): Stichprobe je Arm für OS/MO im Training; OS in der Auswertung
+    "blri": {"n_train": 200, "eval": True},
     "infer": {"batch_size": 16, "max_new_tokens": 400, "mc_max_new_tokens": 120},
 }
 
@@ -81,6 +83,20 @@ class Config:
 
     def judgments(self, model_id: str) -> Path:
         return self.dir / "judgments" / f"{model_id}.jsonl"
+
+    def blri_dir(self) -> Path:
+        return self.dir / "blri"
+
+    def blri_sample(self) -> tuple[list[str], list[str]]:
+        """Arme mit Trainer (A bis C, soweit vorhanden) und die gemeinsame Stichprobe an Aufgaben."""
+        import random
+
+        arms = [a for a in "ABC" if self.train_file(a).exists()]
+        if not arms:
+            return [], []
+        common = set.intersection(*({r["seed_id"] for r in read_jsonl(self.train_file(a))} for a in arms))
+        ids = sorted(common)
+        return arms, sorted(random.Random(0).sample(ids, min(self["blri"]["n_train"], len(ids))))
 
     # --- Modelle ---------------------------------------------------------
     def trained_ids(self) -> list[str]:
